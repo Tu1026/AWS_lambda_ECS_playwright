@@ -199,3 +199,5 @@ node_modules/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+.*
+!/.gitignore
