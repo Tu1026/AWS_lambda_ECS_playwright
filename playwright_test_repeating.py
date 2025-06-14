@@ -1,74 +1,88 @@
 from playwright.sync_api import Playwright, sync_playwright
-import requests
 import os
 from dotenv import load_dotenv
 import time
 import random
+import discord
+import asyncio
+from playwright.async_api import async_playwright
 
 # Load environment variables from .env file
 load_dotenv()
 
 TARGET_URL = os.getenv("TARGET_URL")
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+TOKEN = os.getenv("DISCORD_TOKEN")
+TARGET_USER_ID = int(os.getenv("TARGET_USER_ID"))  # Ensure this is an integer
+# Message you want to send
+NOTIFY_MESSAGE = f"✅ 有可報名的場次！請前往 {TARGET_URL} 查看。"
+
+# --- Main scraping logic ---
+async def check_exam_slots():
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+        ua = (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        )
+        context = await browser.new_context(user_agent=ua)
+        page = await context.new_page()
+        await page.goto(TARGET_URL, wait_until="domcontentloaded")
+        await page.locator("#licenseTypeCode").select_option("3")
+        await page.locator("#expectExamDateStr").click()
+        await page.locator("#expectExamDateStr").fill("1140708")
+        await page.locator("select[name=\"dmvNoLv1\"]").select_option("20")
+        await page.locator("#dmvNo").select_option("21")
+        await page.get_by_role("link", name="查詢場次 Search").click()
+        await page.get_by_role("link", name="選擇場次繼續報名").click()
+
+        has_slot = await page.evaluate("""
+            () => {
+                const rows = document.querySelectorAll('#trnTable tbody tr');
+                for (const row of rows) {
+                    const tds = row.querySelectorAll('td');
+                    if (tds.length >= 4 && tds[3].textContent.trim() !== '' &&
+                        !tds[1].textContent.includes("初考生勿預約本場次")) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        """)
+
+        await browser.close()
+        return has_slot
 
 
-def run(playwright: Playwright) -> None:
-	while True:
-		browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-		ua = (
-			"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-		)
-		context = browser.new_context(user_agent=ua)
-		page = context.new_page()
-		page.goto(url=TARGET_URL, wait_until="domcontentloaded")
-		page.locator("#licenseTypeCode").select_option("3")
-		page.locator("#expectExamDateStr").click()
-		page.locator("#expectExamDateStr").fill("1140708")
-		page.locator("select[name=\"dmvNoLv1\"]").select_option("20")
-		page.locator("#dmvNo").select_option("21")
-		page.get_by_role("link", name="查詢場次 Search").click()
-		page.get_by_role("link", name="選擇場次繼續報名").click()
-		
-		has_non_empty_4th_td = page.evaluate("""
-			() => {
-				const rows = document.querySelectorAll('#trnTable tbody tr');
-				for (const row of rows) {
-					const tds = row.querySelectorAll('td');
-					const fourthTd = tds[3]; // index 3 = 4th td
-					if (tds.length >= 4 && tds[3].textContent.trim() !== '' && !tds[1].textContent.includes("初考生勿預約本場次")) {
-						return true;
-					}
-				}
-				return false;
-			}
-		""")
-		if has_non_empty_4th_td:
-			print("✅ At least one 4th <td> element is non-empty and does not contain '初考生勿預約本場次'.")
-			# Notify via Discord
-			notify_discord("✅ 有可報名的場次！請前往 {} 查看。".format(TARGET_URL))
-		else:
-			print("❌ All 4th <td> elements are empty or missing.")
+# --- Message sending logic using discord.Client ---
+class SlotNotifier(discord.Client):
+    def __init__(self, user_id, message, **kwargs):
+        super().__init__(intents=discord.Intents.default(), **kwargs)
+        self.user_id = user_id
+        self.message = message
 
-		# ---------------------
-		context.close()
-		browser.close()
+    async def on_ready(self):
+        print(f"🔔 Logged in as {self.user}")
+        user = await self.fetch_user(self.user_id)
+        for _ in range(5):
+            await user.send(self.message)
+        await self.close()  # shut down after sending
 
-		# Wait for a random interval between 30 and 60 seconds
-		wait_time = random.randint(30, 60)
-		print(f"Waiting for {wait_time} seconds before the next check...")
-		time.sleep(wait_time)
+# --- Main loop ---
+async def main_loop():
+    while True:
+        has_available = await check_exam_slots()
+        if has_available:
+            print("✅ Slot found! Sending notification...")
+            notifier = SlotNotifier(user_id=TARGET_USER_ID, message=NOTIFY_MESSAGE)
+            await notifier.start(TOKEN)  # Runs and auto-shuts down
+            break  # Exit loop after notifying
+        else:
+            print("❌ No available slots. Will retry.")
+
+        wait_time = random.randint(30, 60)
+        print(f"⏳ Waiting {wait_time} seconds...")
+        await asyncio.sleep(wait_time)
 
 
-def notify_discord(message: str):
-	webhook_url = DISCORD_WEBHOOK_URL
-	data = {
-		"content": message
-	}
-	response = requests.post(webhook_url, json=data)
-	if response.status_code != 204:
-		print(f"Failed to send Discord message: {response.text}")
-
-
-# with sync_playwright() as playwright:
-playwright = sync_playwright().start()
-run(playwright)
+# --- Entry point ---
+if __name__ == "__main__":
+    asyncio.run(main_loop())
