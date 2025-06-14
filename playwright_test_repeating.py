@@ -1,7 +1,5 @@
-from playwright.sync_api import Playwright, sync_playwright
 import os
 from dotenv import load_dotenv
-import time
 import random
 import discord
 import asyncio
