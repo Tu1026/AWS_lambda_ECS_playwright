@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY . /app
 
-RUN pip install playwright requests python-dotenv
+RUN pip install playwright python-dotenv discord.py
 RUN playwright install chromium
 
 # If you have requirements.txt, uncomment the next line:
