@@ -199,5 +199,6 @@ node_modules/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+# All hidden files and directories
 .*
 !/.gitignore
