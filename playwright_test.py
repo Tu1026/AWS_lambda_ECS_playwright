@@ -17,7 +17,7 @@ def run(playwright: Playwright) -> None:
     )
 	context = browser.new_context(user_agent=ua)
 	page = context.new_page()
-	page.goto(TARGET_URL, wait_until="domcontentloaded")
+	page.goto(url=TARGET_URL, wait_until="domcontentloaded")
 	page.locator("#licenseTypeCode").select_option("3")
 	page.locator("#expectExamDateStr").click()
 	page.get_by_role("link", name="30").click()
