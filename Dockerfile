@@ -10,5 +10,4 @@ RUN playwright install chromium
 # If you have requirements.txt, uncomment the next line:
 # RUN pip install -r requirements.txt
 
-# CMD ["python", "playwright_test.py"]
-RUN bash
+CMD ["python", "playwright_test.py", "--loop"]
